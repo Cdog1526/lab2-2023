@@ -5,17 +5,31 @@ from abc import ABC, abstractmethod
 import itertools
 import random
 
+from pyparsing import Optional
+
 from logic import *
 from util import *
 from proofrules import *
 from parser import parse, fmla_parse
 from verifier import verify
 
+# Use a verifier!! Gives you a list of sequents; unclosed obligations. Also gives you feedback. Use often in tactics.
+#len(verify) == 0 is a good thing.
+
+
 class Tactic(ABC):
 
     @abstractmethod
     def apply(self, seq: Sequent) -> set[Proof]:
         return set([seq])
+    
+class IdentityTactic(Tactic):
+
+    def __init__(self,):
+        pass
+
+    def apply(self, seq: Sequent) -> set[Proof]:
+        return set([(Proof(), seq, identityRule)])
 
 class InstantiateForallTactic(Tactic):
 
@@ -161,6 +175,66 @@ class SignTactic(Tactic):
         # Now put everything together and return the proof
         return set([Proof([pf_cutgoal, newgoal], seq, whichRule)])
 
+class CertTactic(Tactic):
+
+    """
+    A tactic for incorporating a signed credential into
+
+    """
+    
+    def __init__(self, agent: Agent, k: Key, ca: Agent, caK: Key):
+        #args = 
+        
+        self._ag = agent
+        # _says is the formula that we want to introduce in the cut
+        self._iskey = App(Operator.ISKEY, 2, [agent, k])
+        # _iskey associates agent to the key in cred
+        self._ca = App(Operator.ISCA, 1, [ca])
+
+        self._cert = App(Operator.SAYS, 2, [ca, self._iskey])
+        # cred and _iskey need to be present in the sequent to
+        # apply this tactic
+        self._reqs = [
+            Proposition(self._cert),
+            Proposition(self._ca)
+        ]
+
+    def apply(self, seq: Sequent) -> set[Proof]:
+        # make sure all of the required assumptions are present
+        if not all(p in seq.gamma for p in self._reqs):
+            return set([])
+        # if the `says` formula is already in the sequent's
+        # assumptions, then there is no need to introduce it
+        # again
+        if Proposition(self._iskey) in seq.gamma:
+            return set([])
+        # cutgoal is the formula that we want to prove in the
+        # left premise of the `cut` appliction
+        cutgoal = Sequent(seq.gamma, Proposition(self._iskey))
+        # `Sign` requires proving `_iskey` and `_cred`
+        # We already checked that these are in the context,
+        # so if we've gotten this far then we know that both
+        # are proved with one application of the identity rule
+        pf_ca = get_one_proof(Sequent(seq.gamma, Proposition(self._ca)), RuleTactic(identityRule))
+        pf_cert = get_one_proof(Sequent(seq.gamma, Proposition(self._cert)), RuleTactic(identityRule))
+        # The left premise of the cut is proved by combining these proofs
+        # using the `Cert` rule
+        pf_cutgoal = Proof([pf_ca, pf_cert], cutgoal, certRule)
+        # The right premise of the cut will copy the assumptions
+        # in the current sequent, and add _says
+        new_gamma = (
+            seq.gamma + 
+            [Proposition(self._iskey)]
+        )
+        newgoal = Sequent(new_gamma, seq.delta)
+        # We need to look at the delta (proof goal) of the given sequent
+        # to determine whether to use the version of `cut` for truth
+        # or affirmation judgements
+        whichRule = cutRule if isinstance(seq.delta, Proposition) else affCutRule
+        # Now put everything together and return the proof
+        return set([Proof([pf_cutgoal, newgoal], seq, whichRule)])
+
+
 class RuleTactic(Tactic):
 
     """
@@ -285,7 +359,7 @@ class ThenTactic(Tactic):
         return pfs
 
 class RepeatTactic(Tactic):
-
+#infinite loops easily. Recommend not using.
     """
     Iterate a tactic until it fails to make progress on any
     unclosed branches of the proof. Optionally, an iteration
@@ -392,6 +466,8 @@ def get_one_proof(seq: Sequent, t: Tactic) -> Optional[Proof]:
     for pf in t.apply(seq):
         if len(verify(pf)) == 0:
             return pf
+        #proof_stringify(pf)
+    #print(len(t.apply(seq)))
     return None
 
 def prove(seq: Sequent) -> Optional[Proof]:
@@ -410,8 +486,32 @@ def prove(seq: Sequent) -> Optional[Proof]:
         Optional[Proof]: A closed proof of `seq`, if
             one exists. Otherwise `None`.
     """
-    return None
+    #print(sequent_stringify(seq))
+    t = ThenTactic([
+    SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b]), [43:c9:43:e6])'), Agent('#ca')),
+    CertTactic(Agent('#root'), Key('[2b:8f:e8:9b]'), Agent('#ca'), Key('[43:c9:43:e6]')),
+    SignTactic(parse('sign((open(#calebkoo, <calebkoo.txt>)), [2b:8f:e8:9b])'), Agent('#root')),
+    RuleTactic(identityRule)
+    ])
+    print(proof_stringify(get_one_proof(seq, t)))
+    return get_one_proof(seq, t)
+    # NEXT ONE
+    t= ThenTactic([
+    SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b]), [43:c9:43:e6])'), Agent('#ca')),
+    CertTactic(Agent('#root'), Key('[2b:8f:e8:9b]'), Agent('#ca'), Key('[43:c9:43:e6]')),
+
+
+    ])
+    
 
 if __name__ == '__main__':
+
+    #in class live coding
+    #seq = parse('@x, #A says iskey(x, [pk]) |- P')
+    #for pf in tn.apply(seq):
+    #    print(stringify())
+    seq = parse('P, Q |- P')
+    for pf in IdentityTactic().apply(seq):
+        print(stringify(pf))
 
     pass

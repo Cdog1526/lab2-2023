@@ -1,0 +1,24 @@
+class RepeatTactic(Tactic):
+#infinite loops easily. Recommend not using.
+    """
+    Iterate a tactic until it fails to make progress on any
+    unclosed branches of the proof. Optionally, an iteration
+    bound may be given.
+    """
+    
+    def __init__(self, t: Tactic, n: int=None):
+        self._t = t
+        self._n = n
+        self._cache = set([])
+
+    def apply(self, seq: Sequent) -> set[Proof]:
+        if self._n is None or self._n >= 0:
+            # If a bound is given, then decrement it before
+            # recursively calling ourself.
+            n = None if self._n is None else self._n - 1
+            # Sequence the tactic with a recursive application
+            # of RepeatTactic. Here it is essential that we
+            # tell ThenTactic to stop when the first tactic
+            # fails to produce a proof.
+            return ThenTactic([self._t, RepeatTactic(self._t, n)], pass_on=False).apply(seq)
+        return set([])
