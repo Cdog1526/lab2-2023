@@ -262,7 +262,7 @@ class RuleTactic(Tactic):
             # We want to remove any assumptions from the sequent that
             # were used to match the rule. This is a general heuristic
             # to avoid infinite applications of the same step when
-            # the tactic is combined with the RepeatTactic given below.
+            # the tactic is combined with repetitive tactics.
             rule_gamma = apply_sequent(self._rule.conclusion, rho).gamma
             red_gamma = [p for p in seq.gamma if p not in rule_gamma]
             # The premises of each proof are obtained by applying
@@ -358,31 +358,6 @@ class ThenTactic(Tactic):
                         pfs |= set([pf1])
         return pfs
 
-class RepeatTactic(Tactic):
-#infinite loops easily. Recommend not using.
-    """
-    Iterate a tactic until it fails to make progress on any
-    unclosed branches of the proof. Optionally, an iteration
-    bound may be given.
-    """
-    
-    def __init__(self, t: Tactic, n: int=None):
-        self._t = t
-        self._n = n
-        self._cache = set([])
-
-    def apply(self, seq: Sequent) -> set[Proof]:
-        if self._n is None or self._n >= 0:
-            # If a bound is given, then decrement it before
-            # recursively calling ourself.
-            n = None if self._n is None else self._n - 1
-            # Sequence the tactic with a recursive application
-            # of RepeatTactic. Here it is essential that we
-            # tell ThenTactic to stop when the first tactic
-            # fails to produce a proof.
-            return ThenTactic([self._t, RepeatTactic(self._t, n)], pass_on=False).apply(seq)
-        return set([])
-
 class OrElseTactic(Tactic):
 
     """
@@ -397,8 +372,8 @@ class OrElseTactic(Tactic):
         self._ts = ts
 
     def apply(self, seq: Sequent) -> set[Proof]:
-        # This works in a similar way to ThenTactic and 
-        # RepeatTactic, making recursive calls to itself
+        # This works in a similar way to ThenTactic,
+        # making recursive calls to itself
         # for as long as tactics attempted so far do not
         # produce any proofs.
         if len(self._ts) > 0:
@@ -512,6 +487,11 @@ if __name__ == '__main__':
     #    print(stringify())
     seq = parse('P, Q |- P')
     for pf in IdentityTactic().apply(seq):
+        print(stringify(pf))
+
+    seq = parse('iskey(#a, [pka]), sign(P, [pka]) |- #a says P')
+    t = SignTactic(parse('sign(P, [pka])'), Agent('#a'))
+    for pf in t.apply(seq):
         print(stringify(pf))
 
     pass
