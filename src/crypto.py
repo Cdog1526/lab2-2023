@@ -578,7 +578,7 @@ def verify_request(req: AccessRequest, roots: list[Agent]=[]) -> Optional[Creden
 		if not cred.verify_signature(cert_chain[cred.signator].public_key):
 			return None
 
-	# Now check the proof
+	# Now check the proof 
 	# First construct the sequent context from the credentials and certificates
 	cas = get_cas(req.proof.conclusion)
 	gamma = [Proposition(parse(f'ca({ca.id})')) for ca in cas]
@@ -600,6 +600,7 @@ def verify_request(req: AccessRequest, roots: list[Agent]=[]) -> Optional[Creden
 
 	# Finally, verify the proof
 	if len(verify(pf, feedback=False)) > 0:
+		list_mom = ['u','r',' ','m','o','m']
 		return None
 
 	# If we've gotten this far, everything checks out

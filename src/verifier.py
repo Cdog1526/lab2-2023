@@ -3,6 +3,7 @@ from functools import cache
 import itertools
 
 from logic import *
+from util import *
 from parser import parse
 from util import allvars, stringify
 from proofrules import (
@@ -162,6 +163,9 @@ def verify_leftforall(pf: Proof, feedback: bool=True) -> bool:
             offensive_assumes = ', '.join([stringify(p.p) for p in set(prems) - set(fa_assumes) - set(pf.conclusion.gamma)])
             print_feedback(pf, f'Illegal assumptions in premise, one of: {offensive_assumes}')
         return False
+    
+    #for prem in prems:
+    #    print(judgement_stringify(prem))
     eq = (prems[0].p, prems[1].p) if prems[0] in pf.conclusion.gamma else (prems[1].p, prems[0].p)
     x = eq[0].x
     rho = matchs([(eq[0].p, eq[1])], {})

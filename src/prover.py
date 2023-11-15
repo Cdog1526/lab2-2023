@@ -10,7 +10,7 @@ from pyparsing import Optional
 from logic import *
 from util import *
 from proofrules import *
-from parser import parse, fmla_parse
+from parser import parse, fmla_parse, judgement_parse
 from verifier import verify
 
 # Use a verifier!! Gives you a list of sequents; unclosed obligations. Also gives you feedback. Use often in tactics.
@@ -358,6 +358,102 @@ class ThenTactic(Tactic):
                         pfs |= set([pf1])
         return pfs
 
+class WeirdTactic() :
+    def __init__(self, a: Agent, r: Resource,  b : Agent):
+        self._a = a
+        self._b = b
+        self._r = r
+    
+    def apply(self, seq : Sequent) -> set[Proof]:
+        pfs = set([])
+        for prop in seq.gamma:
+            if not isinstance(prop.p, Forall):
+                continue
+            # prop is Proposition(@x . q)
+            # prop.p is Forall(x, q)
+            # prop.p.p is q, ANOTHER FORMULA (not a proposition)
+            x = prop.p.x
+            q = prop.p.p
+            #new_assume1 = Proposition(apply_formula(q, {x: self._a}))
+            newq = apply_formula(q, {x: self._a})
+            new_assume1 = Proposition(newq)
+            new_gamma1 = [r for r in seq.gamma if r != prop] + [new_assume1]
+            
+            if not isinstance(newq, Forall):
+                #print('error')
+                continue
+            y = newq.x
+            q2 = newq.p
+            newq2 = apply_formula(q2, {y: self._r})
+            new_assume2 = Proposition(newq2)
+            new_gamma2 = [r for r in seq.gamma if r != prop] + [new_assume2]
+
+            if not isinstance(newq2, App):
+                continue
+                #print('error2')
+            if not newq2.arity == 2:
+                print('error3')
+                continue
+            #if not q2.op == logic.IMPLIES:
+            #    print('error')
+            q3 = newq2.args[1]
+            qunused = newq2.args[0]
+
+
+            #For the branch that checks qunused
+            branch_delta = Proposition(qunused)
+            branch_gamma = [r for r in seq.gamma if r != prop]
+
+            #For main line
+            main_delta = seq.delta
+            main_gamma = [r for r in seq.gamma if r != prop] + [Proposition(q3)]
+
+
+            if not isinstance(q3, Forall):
+                continue
+                print('error4')
+            z = q3.x
+            q4 = q3.p
+            finalform = apply_formula(q4, {z: self._b})
+            new_assume3 = Proposition(finalform)
+
+            new_gamma3 = [r for r in seq.gamma if r != prop] + [new_assume3]
+            ###if new_assume not in seq.gamma:
+                    # The context for the premise of the proof that will be added
+                    # contains the new assumption, and removes the @x . p judgement
+                    # to avoid repeating the same step in the future.
+                #new_gamma = [r for r in seq.gamma if r != p] + [new_assume]
+                    # Before adding the proof, need to check whether delta is a
+                    # truth (proposition) judgement or affirmation.
+                    # This determines whether to use the "normal" @L rule, or the
+                    # version that matches affirmation judgements.
+                #which_rule = forallLeftRule if isinstance(seq.delta, Proposition) else forallLeftAffRule
+                    # Add the proof to the return set.
+            newseq1 = Sequent(new_gamma1, seq.delta)
+            newseq2 = Sequent(new_gamma2, seq.delta)
+            newseq3 = Sequent(new_gamma3, seq.delta)
+            pf1 = Proof([newseq1], seq, forallLeftRule)
+            pf2 = Proof([newseq2], newseq1, forallLeftRule)
+            
+
+            branchseq = Sequent(branch_gamma, branch_delta)
+            mainseq = Sequent(main_gamma, main_delta)
+            
+            pf3 = Proof([branchseq, mainseq], newseq2, impLeftAffRule)
+            
+            pf4 = Proof([newseq3], mainseq, forallLeftRule)
+
+            realpf2 = chain(pf1, {newseq1: pf2})
+            realpf3 = chain(realpf2, {newseq2: pf3})
+            realpf4 = chain(realpf3, {mainseq: pf4})
+            #print(proof_stringify(realpf4))
+            pfs |= set([realpf4])
+            
+        #for pf in pfs:
+        #    print(proof_stringify(pf))
+        return pfs
+    
+
 class OrElseTactic(Tactic):
 
     """
@@ -441,9 +537,23 @@ def get_one_proof(seq: Sequent, t: Tactic) -> Optional[Proof]:
     for pf in t.apply(seq):
         if len(verify(pf)) == 0:
             return pf
-        #proof_stringify(pf)
-    #print(len(t.apply(seq)))
+        #print(proof_stringify(pf))
+        #print('DISTINCT PROOF')
+        #for a in verify(pf):
+        #    print(sequent_stringify(a))
+            #print('/n')
     return None
+
+def prove2(seq: Sequent) -> Optional[Proof]:
+    t = ThenTactic([
+        SignTactic(parse('sign(iskey(#root, [ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0]), [45:fb:a2:de:b4:da:6b:62:30:4f:be:ce:1c:05:52:e7])'), Agent('#newuser')),
+        CertTactic(Agent('#root'), Key('[ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0]'), Agent('#newuser'), Key('[45:fb:a2:de:b4:da:6b:62:30:4f:be:ce:1c:05:52:e7]')),
+        SignTactic(parse('sign((open(#calebkoo, <bigsecret.txt>)), [ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0])'), Agent('#root')),
+        RuleTactic(identityRule)
+    ])
+    
+    #print(proof_stringify(get_one_proof(seq, t)))
+    return get_one_proof(seq, t)
 
 def prove(seq: Sequent) -> Optional[Proof]:
     """
@@ -461,23 +571,156 @@ def prove(seq: Sequent) -> Optional[Proof]:
         Optional[Proof]: A closed proof of `seq`, if
             one exists. Otherwise `None`.
     """
-    #print(sequent_stringify(seq))
-    t = ThenTactic([
-    SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b]), [43:c9:43:e6])'), Agent('#ca')),
-    CertTactic(Agent('#root'), Key('[2b:8f:e8:9b]'), Agent('#ca'), Key('[43:c9:43:e6]')),
-    SignTactic(parse('sign((open(#calebkoo, <calebkoo.txt>)), [2b:8f:e8:9b])'), Agent('#root')),
-    RuleTactic(identityRule)
-    ])
-    print(proof_stringify(get_one_proof(seq, t)))
-    return get_one_proof(seq, t)
-    # NEXT ONE
-    t= ThenTactic([
-    SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b]), [43:c9:43:e6])'), Agent('#ca')),
-    CertTactic(Agent('#root'), Key('[2b:8f:e8:9b]'), Agent('#ca'), Key('[43:c9:43:e6]')),
-
-
-    ])
+    #FIRST ONE
+    q1 = judgement_parse('#root says open(#calebkoo, <calebkoo.txt>)')
+    q2 = judgement_parse('#root says open(#calebkoo, <shared.txt>)')
+    q3 = judgement_parse('#root says open(#calebkoo, <secret.txt>)')
+    if q1 == seq.delta:  
+        t = ThenTactic([
+            SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+            CertTactic(Agent('#root'), Key('[2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            SignTactic(parse('sign((open(#calebkoo, <calebkoo.txt>)), [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b])'), Agent('#root')),
+            RuleTactic(identityRule)
+        ])
     
+    #print(proof_stringify(get_one_proof(seq, t)))
+    
+     
+    # NEXT ONE
+    #t= ThenTactic([
+    #SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b]), [43:c9:43:e6])'), Agent('#ca')),
+    #CertTactic(Agent('#root'), Key('[2b:8f:e8:9b]'), Agent('#ca'), Key('[43:c9:43:e6]')),
+    ##SignTactic(parse('sign(((@A . (((#mfredrik says open(A, <shared.txt>)) -> open(A, <shared.txt>))))), 
+    # [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]), Agent('#root')),
+    #RuleTactic(forallLeftRule),
+    #RuleRactic(saysLeftRule),
+# This succesfully gets you to mfred says open(e, shared) -> open(e, shared) |- root aff open(koo, <shared>)
+    # CertTactic(Agent('#mfrederik'), Key('[d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+# Gives you mfrederik key right
+    # SignTactic(parse('sign((open(#calebkoo, <shared.txt>)), [d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47])'), Agent('#mfrederik')),
+# Gives mfrederk says open(koo, shared.txt)
+    # RuleTactic(impLeftAffRule),
+#Deals with the if, should yield open(calebkoo, <shared.txt>). Deal with other thing? Matching e to calebkoo?
+    # RuleTactic(SaysLeftRule)
+#root says open(koo, shared) |- root aff open(koo, shared) 
+    # RuleTactic(SaysRightRule)
+#root says open(koo, shared)  |- root says open(koo, shared) 
+    #RuleTactic(identityRule)
+    #])
+    if q2 == seq.delta: 
+        t= ThenTactic([
+            SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+            SignTactic(parse('sign(iskey(#mfredrik, [d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+            CertTactic(Agent('#root'), Key('[2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            SignTactic(parse('sign(((@A . (((#mfredrik says open(A, <shared.txt>)) -> open(A, <shared.txt>))))), [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b])'), Agent('#root')),
+            CertTactic(Agent('#root'), Key('[2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            CertTactic(Agent('#mfredrik'), Key('[d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            SignTactic(parse('sign((open(#calebkoo, <shared.txt>)), [d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47])'), Agent('#mfredrik')),
+            #this gives "root says "@a mfredrik says...
+            RuleTactic(saysRightRule),
+            RuleTactic(saysLeftRule),
+            InstantiateForallTactic(set([Agent('#calebkoo')])),
+            
+            
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+            #up to here is fine. However, we're not getting "mfredrik says open(calekoo, shared.txt)" for some reason.
+            RuleTactic(affRule),
+            RuleTactic(identityRule),
+        ])
+    #DON't MISS THIS: TO CHANGE A 'sign' to a 'says,' you must FIRST sign iskey as CA; then, certTactic that signing for the CA; THEN signtactic the
+    # statement itself.
+
+    #LAST ONE
+    if q3 == seq.delta:
+        t = ThenTactic([
+            # start by adding everything we want
+            SignTactic(parse('sign(iskey(#root, [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+            SignTactic(parse('sign(iskey(#mfredrik, [d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+            SignTactic(parse('sign(iskey(#dsduena, [db:b2:b9:b7:01:83:9c:3e:7d:ac:c4:87:00:cd:79:2f]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+            SignTactic(parse('sign(iskey(#justinyo, [d2:15:e7:01:be:ef:fa:e6:08:ca:6c:bd:90:f4:1b:af]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+            SignTactic(parse('sign(iskey(#mdhamank, [71:14:55:85:b1:59:ae:76:b2:56:4b:36:09:01:f5:3f]), [43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f])'), Agent('#ca')),
+
+            CertTactic(Agent('#root'), Key('[2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            CertTactic(Agent('#mfredrik'), Key('[d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            CertTactic(Agent('#dsduena'), Key('[db:b2:b9:b7:01:83:9c:3e:7d:ac:c4:87:00:cd:79:2f]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            CertTactic(Agent('#justinyo'), Key('[d2:15:e7:01:be:ef:fa:e6:08:ca:6c:bd:90:f4:1b:af]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+            CertTactic(Agent('#mdhamank'), Key('[71:14:55:85:b1:59:ae:76:b2:56:4b:36:09:01:f5:3f]'), Agent('#ca'), Key('[43:c9:43:e6:28:37:ec:23:1a:bc:83:c6:eb:87:e8:6f]')),
+
+            SignTactic(parse('sign(((@A . ((@R . ((open(A, R) -> (@B . (((A says open(B, R)) -> open(B, R)))))))))), [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b])'), Agent('#root')),
+            
+            SignTactic(parse('sign((open(#mfredrik, <secret.txt>)), [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b])'), Agent('#root')),
+            SignTactic(parse('sign((open(#dsduena, <secret.txt>)), [d3:c6:2a:1b:63:20:f9:75:fd:1b:ec:fc:ad:19:f1:47])'), Agent('#mfredrik')),
+            SignTactic(parse('sign((open(#justinyo, <secret.txt>)), [db:b2:b9:b7:01:83:9c:3e:7d:ac:c4:87:00:cd:79:2f])'), Agent('#dsduena')),
+            SignTactic(parse('sign((open(#mdhamank, <secret.txt>)), [d2:15:e7:01:be:ef:fa:e6:08:ca:6c:bd:90:f4:1b:af])'), Agent('#justinyo')),
+            SignTactic(parse('sign((open(#calebkoo, <secret.txt>)), [71:14:55:85:b1:59:ae:76:b2:56:4b:36:09:01:f5:3f])'), Agent('#mdhamank')),
+
+            # affrule
+            #changes |- root aff calebkoo can open
+            RuleTactic(saysRightRule),
+            #leftsaysrule
+            #mfred can open...
+            RuleTactic(saysLeftRule),
+            RuleTactic(saysLeftRule),
+            
+
+            #We now should have everything we need.
+            WeirdTactic(Agent('#mfredrik'), Resource('<secret.txt>'), Agent('#dsduena')),
+            #currently, we have (mfred says dsduena can open) + (mfred can open) + (root says for if mfred can open -> if mfred says ds can open -> ds can open)
+            # |- root aff calebkoo can open
+
+            #leftsaysrule again
+            #if mfred...
+            RuleTactic(saysLeftRule),
+
+            #leftimpaff
+            #2 things to confirm. One is |- mfred can open, which is just by identity.
+            #(mfred says dsduena can open) + if mfred says ds can open, ds can open (true) |- root aff calebkoo can open
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+            #leftimpaff again
+            #2 things to confirm. One is |- mfred says dsduena can open, which is just by identity.
+            #ds can open |- root aff calebkoo can open.
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+
+            #We legit just repeat "latest weirdtactic" + leftsaysrule + 2xleftimpaff until cows come home.
+            SignTactic(parse('sign(((@A . ((@R . ((open(A, R) -> (@B . (((A says open(B, R)) -> open(B, R)))))))))), [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b])'), Agent('#root')),
+            RuleTactic(saysLeftRule),
+            WeirdTactic(Agent('#dsduena'), Resource('<secret.txt>'), Agent('#justinyo')),
+            RuleTactic(saysLeftRule),
+            RuleTactic(saysLeftRule),
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+
+            SignTactic(parse('sign(((@A . ((@R . ((open(A, R) -> (@B . (((A says open(B, R)) -> open(B, R)))))))))), [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b])'), Agent('#root')),
+            RuleTactic(saysLeftRule),
+            WeirdTactic(Agent('#justinyo'), Resource('<secret.txt>'), Agent('#mdhamank')),
+            RuleTactic(saysLeftRule),
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+
+            SignTactic(parse('sign(((@A . ((@R . ((open(A, R) -> (@B . (((A says open(B, R)) -> open(B, R)))))))))), [2b:8f:e8:9b:8b:76:37:a7:3b:7e:85:49:9d:87:7b:3b])'), Agent('#root')),
+            RuleTactic(saysLeftRule),
+            WeirdTactic(Agent('#mdhamank'), Resource('<secret.txt>'), Agent('#calebkoo')),
+            RuleTactic(saysLeftRule),
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+            RuleTactic(impLeftAffRule),
+            RuleTactic(identityRule),
+
+            #Should yield ckoo can open |- root aff ckoo can open
+            RuleTactic(affRule),
+            RuleTactic(identityRule),
+        ])
+    
+    #print(proof_stringify(get_one_proof(seq, t)))
+    #t.apply(seq)
+    return get_one_proof(seq, t)
 
 if __name__ == '__main__':
 
@@ -489,9 +732,9 @@ if __name__ == '__main__':
     for pf in IdentityTactic().apply(seq):
         print(stringify(pf))
 
-    seq = parse('iskey(#a, [pka]), sign(P, [pka]) |- #a says P')
-    t = SignTactic(parse('sign(P, [pka])'), Agent('#a'))
-    for pf in t.apply(seq):
-        print(stringify(pf))
+    s#eq = parse('iskey(#a, [pka]), sign(P, [pka]) |- #a says P')
+    #t = SignTactic(parse('sign(P, [pka])'), Agent('#a'))
+    #for pf in t.apply(seq):
+    #    print(stringify(pf))
 
     pass
