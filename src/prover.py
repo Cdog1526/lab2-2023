@@ -544,10 +544,10 @@ def get_one_proof(seq: Sequent, t: Tactic) -> Optional[Proof]:
             #print('/n')
     return None
 
-def prove2(seq: Sequent) -> Optional[Proof]:
+def prove2(seq: Sequent, newkeyprint : str) -> Optional[Proof]:
     t = ThenTactic([
-        SignTactic(parse('sign(iskey(#root, [ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0]), [45:fb:a2:de:b4:da:6b:62:30:4f:be:ce:1c:05:52:e7])'), Agent('#newuser')),
-        CertTactic(Agent('#root'), Key('[ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0]'), Agent('#newuser'), Key('[45:fb:a2:de:b4:da:6b:62:30:4f:be:ce:1c:05:52:e7]')),
+        SignTactic(parse('sign(iskey(#root, [ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0]), ' + newkeyprint + ')'), Agent('#newuser')),
+        CertTactic(Agent('#root'), Key('[ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0]'), Agent('#newuser'), Key(newkeyprint)),
         SignTactic(parse('sign((open(#calebkoo, <bigsecret.txt>)), [ca:63:85:95:dc:f9:48:e4:cd:46:ec:4d:93:08:c5:c0])'), Agent('#root')),
         RuleTactic(identityRule)
     ])
@@ -717,7 +717,7 @@ def prove(seq: Sequent) -> Optional[Proof]:
             RuleTactic(affRule),
             RuleTactic(identityRule),
         ])
-    
+
     #print(proof_stringify(get_one_proof(seq, t)))
     #t.apply(seq)
     return get_one_proof(seq, t)
